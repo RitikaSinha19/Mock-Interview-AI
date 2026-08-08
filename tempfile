@@ -1,0 +1,814 @@
+import streamlit as st
+
+from question_generator import (
+    generate_question,
+    generate_follow_up_question
+)
+
+from answer_evaluator import evaluate_answer
+
+from adaptive_engine import determine_next_step
+
+from difficulty_controller import determine_difficulty
+
+from interview_modes import get_question_type
+
+from company_profiles import COMPANY_PROFILES
+
+
+# ==================================================
+# PAGE CONFIGURATION
+# ==================================================
+
+st.set_page_config(
+    page_title="AI Interview Mentor",
+    page_icon="🤖",
+    layout="centered"
+)
+
+
+# ==================================================
+# TITLE
+# ==================================================
+
+st.title("🤖 AI Interview Mentor")
+
+st.write(
+    "Practice realistic interviews with an adaptive AI interviewer."
+)
+
+
+# ==================================================
+# SESSION STATE
+# ==================================================
+
+if "question" not in st.session_state:
+    st.session_state.question = None
+
+if "question_data" not in st.session_state:
+    st.session_state.question_data = None
+
+if "evaluation" not in st.session_state:
+    st.session_state.evaluation = None
+
+if "interview_history" not in st.session_state:
+    st.session_state.interview_history = []
+
+if "previous_questions" not in st.session_state:
+    st.session_state.previous_questions = []
+
+if "next_difficulty" not in st.session_state:
+    st.session_state.next_difficulty = "medium"
+
+if "interview_started" not in st.session_state:
+    st.session_state.interview_started = False
+
+if "question_number" not in st.session_state:
+    st.session_state.question_number = 0
+
+if "last_candidate_answer" not in st.session_state:
+    st.session_state.last_candidate_answer = ""
+
+if "follow_up_question" not in st.session_state:
+    st.session_state.follow_up_question = None
+
+if "adaptive_decision" not in st.session_state:
+    st.session_state.adaptive_decision = None
+
+
+# ==================================================
+# INTERVIEW SETUP
+# ==================================================
+
+st.header("Interview Setup")
+
+
+role = st.text_input(
+    "Target Role",
+    value="Java Backend Developer"
+)
+
+
+experience = st.selectbox(
+    "Experience Level",
+    [
+        "Fresher",
+        "Junior",
+        "Mid-level",
+        "Senior"
+    ]
+)
+
+
+interview_mode = st.selectbox(
+    "Interview Mode",
+    [
+        "Technical",
+        "HR",
+        "Behavioral",
+        "Mixed",
+        "Company Preparation"
+    ]
+)
+
+
+# ==================================================
+# COMPANY SELECTION
+# ==================================================
+
+company = "General"
+
+if interview_mode == "Company Preparation":
+
+    company = st.selectbox(
+        "Company Preparation Profile",
+        list(COMPANY_PROFILES.keys())
+    )
+
+
+# ==================================================
+# TOPIC
+# ==================================================
+
+topic = st.text_input(
+    "Topic",
+    value="OOP"
+)
+
+
+# ==================================================
+# STARTING DIFFICULTY
+# ==================================================
+
+difficulty = st.selectbox(
+    "Starting Difficulty",
+    [
+        "easy",
+        "medium",
+        "hard"
+    ],
+    index=1
+)
+
+
+# ==================================================
+# BUILD COMPANY CONTEXT
+# ==================================================
+
+additional_context = ""
+
+if interview_mode == "Company Preparation":
+
+    company_profile = COMPANY_PROFILES[company]
+
+    additional_context = f"""
+Company Preparation Profile
+
+Company:
+{company}
+
+Style:
+{company_profile["style"]}
+
+Technical Weight:
+{company_profile["technical_weight"]}
+
+Behavioral Weight:
+{company_profile["behavioral_weight"]}
+
+Configured Difficulty:
+{company_profile["difficulty"]}
+
+Important:
+This is a configurable preparation profile.
+Do not claim that these characteristics represent
+the company's actual current hiring process.
+Do not claim that the company definitely asks
+specific questions.
+"""
+
+
+# ==================================================
+# START INTERVIEW
+# ==================================================
+
+if st.button("Start Interview"):
+
+    # Reset interview state
+    st.session_state.interview_started = True
+
+    st.session_state.evaluation = None
+
+    st.session_state.interview_history = []
+
+    st.session_state.previous_questions = []
+
+    st.session_state.question_number = 1
+
+    st.session_state.last_candidate_answer = ""
+
+    st.session_state.follow_up_question = None
+
+    st.session_state.adaptive_decision = None
+
+    st.session_state.next_difficulty = difficulty
+
+
+    # ----------------------------------------------
+    # Determine first question type
+    # ----------------------------------------------
+
+    if interview_mode == "Company Preparation":
+
+        question_type = "technical"
+
+    else:
+
+        question_type = get_question_type(
+            interview_mode,
+            st.session_state.question_number
+        )
+
+
+    # ----------------------------------------------
+    # Generate first question
+    # ----------------------------------------------
+
+    with st.spinner(
+        "AI is preparing your first question..."
+    ):
+
+        question_data = generate_question(
+            role=role,
+            interview_type=question_type,
+            topic=topic,
+            difficulty=difficulty,
+            experience=experience,
+            previous_questions=[],
+            additional_context=additional_context
+        )
+
+
+    # ----------------------------------------------
+    # Store question
+    # ----------------------------------------------
+
+    st.session_state.question_data = question_data
+
+    st.session_state.question = (
+        question_data["question"]
+    )
+
+    st.rerun()
+
+
+
+
+    # ==================================================
+# CURRENT INTERVIEW HISTORY
+# ==================================================
+
+if st.session_state.interview_history:
+
+    with st.expander(
+        "📋 Interview History"
+    ):
+
+        for index, item in enumerate(
+            st.session_state.interview_history,
+            start=1
+        ):
+
+            st.markdown(
+                f"### Question {index}"
+            )
+
+            st.write(
+                item["question"]
+            )
+
+            st.markdown(
+                "**Your Answer:**"
+            )
+
+            st.write(
+                item["answer"]
+            )
+
+            st.caption(
+                f"Type: {item['question_type']} | "
+                f"Topic: {item['topic']} | "
+                f"Difficulty: {item['difficulty']} | "
+                f"Score: {item['score']}/10"
+            )
+
+            if index < len(
+                st.session_state.interview_history
+            ):
+                st.divider()
+
+
+# ==================================================
+# DISPLAY CURRENT QUESTION
+# ==================================================
+
+if st.session_state.question:
+
+    question_data = st.session_state.question_data
+
+    st.divider()
+
+    st.subheader(
+        f" Question {st.session_state.question_number}"
+    )
+
+    st.write(
+        question_data["question"]
+    )
+
+    st.caption(
+        f"Type: {question_data['question_type']} | "
+        f"Topic: {question_data['topic']} | "
+        f"Subtopic: {question_data['subtopic']} | "
+        f"Difficulty: {question_data['difficulty']}"
+    )
+
+
+    # ==================================================
+    # CANDIDATE ANSWER
+    # ==================================================
+
+    candidate_answer = st.text_area(
+    "Your Answer",
+    height=200,
+    placeholder="Type your interview answer here...",
+    key=f"answer_box_{st.session_state.question_number}"
+)
+
+
+    # ==================================================
+    # SUBMIT ANSWER
+    # ==================================================
+
+    if st.button("Submit Answer"):
+
+        if not candidate_answer.strip():
+
+            st.warning(
+                "Please provide an answer before submitting."
+            )
+
+        else:
+
+            with st.spinner(
+                "AI is evaluating your answer..."
+            ):
+
+                evaluation = evaluate_answer(
+                    question=question_data["question"],
+                    candidate_answer=candidate_answer,
+                    question_type=question_data["question_type"],
+                    topic=question_data["topic"],
+                    difficulty=question_data["difficulty"]
+                )
+
+
+            # ------------------------------------------
+            # Store evaluation
+            # ------------------------------------------
+
+            st.session_state.evaluation = evaluation
+
+            st.session_state.last_candidate_answer = (
+                candidate_answer
+            )
+
+
+            # ------------------------------------------
+            # Store interview history
+            # ------------------------------------------
+
+            st.session_state.interview_history.append(
+    {
+        "question": question_data["question"],
+        "answer": candidate_answer,
+        "question_type": question_data["question_type"],
+        "topic": question_data["topic"],
+        "subtopic": question_data["subtopic"],
+        "difficulty": question_data["difficulty"],
+        "score": evaluation["score"]
+    }
+)
+
+
+            # ------------------------------------------
+            # Store previous question
+            # ------------------------------------------
+
+            st.session_state.previous_questions.append(
+                question_data["question"]
+            )
+
+
+            # ------------------------------------------
+            # Determine next difficulty
+            # ------------------------------------------
+
+            next_difficulty = determine_difficulty(
+                evaluation["score"]
+            )
+
+            st.session_state.next_difficulty = (
+                next_difficulty
+            )
+
+
+            # ------------------------------------------
+            # Clear old adaptive information
+            # ------------------------------------------
+
+            st.session_state.follow_up_question = None
+
+            st.session_state.adaptive_decision = None
+
+            st.rerun()
+
+
+# ==================================================
+# DISPLAY EVALUATION
+# ==================================================
+
+if st.session_state.evaluation:
+
+    evaluation = st.session_state.evaluation
+
+    st.divider()
+
+    st.subheader("📊 AI Evaluation")
+
+
+    # ==================================================
+    # OVERALL SCORE
+    # ==================================================
+
+    st.metric(
+        "Overall Score",
+        f"{evaluation['score']}/10"
+    )
+
+
+    # ==================================================
+    # TECHNICAL / GENERAL SCORES
+    # ==================================================
+
+    col1, col2 = st.columns(2)
+
+
+    with col1:
+
+        st.write("**Technical Accuracy**")
+
+        st.write(
+            f"{evaluation['technical_accuracy']}/10"
+        )
+
+
+        st.write("**Conceptual Understanding**")
+
+        st.write(
+            f"{evaluation['conceptual_understanding']}/10"
+        )
+
+
+        st.write("**Depth**")
+
+        st.write(
+            f"{evaluation['depth']}/10"
+        )
+
+
+    with col2:
+
+        st.write("**Communication**")
+
+        st.write(
+            f"{evaluation['communication']}/10"
+        )
+
+
+        st.write("**Relevance**")
+
+        st.write(
+            f"{evaluation['relevance']}/10"
+        )
+
+
+        st.write("**Specificity**")
+
+        st.write(
+            f"{evaluation['specificity']}/10"
+        )
+
+
+    # ==================================================
+    # PROFESSIONALISM
+    # ==================================================
+
+    st.write("**Professionalism**")
+
+    st.write(
+        f"{evaluation['professionalism']}/10"
+    )
+
+
+    # ==================================================
+    # CONFIDENCE INDICATORS
+    # ==================================================
+
+    st.subheader("🗣️ Confidence Indicators")
+
+    st.write(
+        evaluation["confidence_indicators"]
+    )
+
+    st.caption(
+        "Confidence indicators are inferred only from "
+        "the written response."
+    )
+
+
+    # ==================================================
+    # STRENGTHS
+    # ==================================================
+
+    st.subheader("✅ Strengths")
+
+    for strength in evaluation["strengths"]:
+
+        st.write(
+            f"• {strength}"
+        )
+
+
+    # ==================================================
+    # WEAKNESSES
+    # ==================================================
+
+    st.subheader("⚠️ Weaknesses")
+
+    for weakness in evaluation["weaknesses"]:
+
+        st.write(
+            f"• {weakness}"
+        )
+
+
+    # ==================================================
+    # MISSING CONCEPTS
+    # ==================================================
+
+    st.subheader("🧠 Missing Concepts")
+
+    if evaluation["missing_concepts"]:
+
+        for concept in evaluation["missing_concepts"]:
+
+            st.write(
+                f"• {concept}"
+            )
+
+    else:
+
+        st.write(
+            "No important missing concepts identified."
+        )
+
+
+    # ==================================================
+    # FEEDBACK
+    # ==================================================
+
+    st.subheader("💡 Feedback")
+
+    st.write(
+        evaluation["feedback"]
+    )
+
+
+    # ==================================================
+    # BETTER ANSWER
+    # ==================================================
+
+    with st.expander("📖 See a Better Answer"):
+
+        st.write(
+            evaluation["better_answer"]
+        )
+
+
+    # ==================================================
+    # NEXT DIFFICULTY
+    # ==================================================
+
+    st.subheader("🎯 Next Difficulty")
+
+    st.info(
+        f"The next question will target "
+        f"**{st.session_state.next_difficulty}** difficulty."
+    )
+
+
+# ==================================================
+# GENERATE NEXT QUESTION
+# ==================================================
+
+if st.session_state.evaluation:
+
+    st.divider()
+
+    if st.button("Generate Next Question"):
+
+        evaluation = st.session_state.evaluation
+
+        question_data = st.session_state.question_data
+
+
+        # ------------------------------------------
+        # Ask adaptive engine
+        # ------------------------------------------
+
+        with st.spinner(
+            "AI is deciding what you should face next..."
+        ):
+
+            next_step = determine_next_step(
+                current_question=question_data["question"],
+                current_topic=question_data["topic"],
+                current_subtopic=question_data["subtopic"],
+                current_difficulty=question_data["difficulty"],
+                evaluation=evaluation,
+                interview_history=(
+                    st.session_state.interview_history
+                )
+            )
+
+
+        st.session_state.adaptive_decision = next_step
+
+
+        # ------------------------------------------
+        # Determine next difficulty
+        # ------------------------------------------
+
+        next_difficulty = determine_difficulty(
+            evaluation["score"]
+        )
+
+        st.session_state.next_difficulty = (
+            next_difficulty
+        )
+
+
+        # ------------------------------------------
+        # Determine next question type
+        # ------------------------------------------
+
+        next_question_number = (
+            st.session_state.question_number + 1
+        )
+
+
+        if interview_mode == "Company Preparation":
+
+            # Use company profile to influence mode.
+            company_profile = COMPANY_PROFILES[company]
+
+            if company_profile["behavioral_weight"] > (
+                company_profile["technical_weight"]
+            ):
+
+                next_question_type = (
+                    "behavioral"
+                )
+
+            else:
+
+                next_question_type = (
+                    "technical"
+                )
+
+        else:
+
+            next_question_type = get_question_type(
+                interview_mode,
+                next_question_number
+            )
+
+
+        # ------------------------------------------
+        # Determine topic
+        # ------------------------------------------
+
+        next_topic = next_step["next_topic"]
+
+        next_subtopic = next_step["next_subtopic"]
+
+
+        # ------------------------------------------
+        # Generate follow-up when requested
+        # ------------------------------------------
+
+        ask_follow_up = next_step.get(
+            "ask_follow_up",
+            False
+        )
+
+
+        if ask_follow_up:
+
+            with st.spinner(
+                "AI is preparing a meaningful follow-up..."
+            ):
+
+                follow_up = generate_follow_up_question(
+                    role=role,
+                    question=question_data["question"],
+                    candidate_answer=(
+                        st.session_state.last_candidate_answer
+                    ),
+                    evaluation=evaluation
+                )
+
+
+            st.session_state.follow_up_question = (
+                follow_up
+            )
+
+
+            # The follow-up becomes the next question.
+            next_question_data = {
+                "question": follow_up["question"],
+                "question_type": question_data[
+                    "question_type"
+                ],
+                "topic": question_data["topic"],
+                "subtopic": question_data["subtopic"],
+                "difficulty": next_difficulty
+            }
+
+
+        else:
+
+            # ------------------------------------------
+            # Generate a new adaptive question
+            # ------------------------------------------
+
+            with st.spinner(
+                "AI is generating your next question..."
+            ):
+
+                next_question_data = generate_question(
+                    role=role,
+                    interview_type=next_question_type,
+                    topic=next_topic,
+                    subtopic=next_subtopic,
+                    difficulty=next_difficulty,
+                    experience=experience,
+                    previous_questions=(
+                        st.session_state.previous_questions
+                    ),
+                    additional_context=(
+                        additional_context
+                    )
+                )
+
+
+        # ------------------------------------------
+        # Update question number
+        # ------------------------------------------
+
+        st.session_state.question_number = (
+            next_question_number
+        )
+
+
+        # ------------------------------------------
+        # Store next question
+        # ------------------------------------------
+
+        st.session_state.question_data = (
+            next_question_data
+        )
+
+        st.session_state.question = (
+            next_question_data["question"]
+        )
+
+
+        # ------------------------------------------
+        # Clear previous evaluation
+        # ------------------------------------------
+
+        st.session_state.evaluation = None
+
+        st.rerun()
